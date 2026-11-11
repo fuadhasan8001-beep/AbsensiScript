@@ -1,0 +1,1 @@
+const AuditService={log(c,action,entity,id,details){DB.append('AUDIT_LOGS',{auditId:Utils.id('aud'),actorId:c?.id||'SYSTEM',action,entity,entityId:id||'',detailsJson:Utils.json(details),createdAt:Utils.iso(Utils.now())});},list(c,p){Access.requireRole(c,['SUPER_ADMIN']);return DB.rows('AUDIT_LOGS').slice(-Math.min(Number(p.limit)||100,500)).reverse();}};

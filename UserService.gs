@@ -1,0 +1,1 @@
+const UserService={bootstrap(c){const user=DB.by('USERS','userId',c.id);const employee=c.employeeId?DB.by('EMPLOYEES','employeeId',c.employeeId):null;return {user,employee,app:{name:APP.NAME,version:APP.VERSION},today:Utils.dateKey(Utils.now())};}};
