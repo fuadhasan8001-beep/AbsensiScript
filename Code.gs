@@ -41,7 +41,7 @@ function api(action, payload) {
  * Buat tab dan header database secara idempoten.
  * Fungsi ini tidak mengisi data contoh kecamatan, kantor, atau pegawai.
  */
-function initializeDatabase() {
+function initializeDatabase_() {
   const spreadsheet = DB.ss();
   const message = DB.init();
   const tabs = spreadsheet.getSheets().map(function (sheet) {
@@ -65,7 +65,7 @@ function initializeDatabase() {
 }
 
 /** Periksa spreadsheet dan tab database tanpa membuat perubahan. */
-function inspectDatabase() {
+function inspectDatabase_() {
   const spreadsheet = DB.ss();
   const tabs = spreadsheet.getSheets().map(function (sheet) {
     return {
@@ -90,7 +90,7 @@ function inspectDatabase() {
  * Membuat akun Super Admin pertama dari Script Property
  * FIRST_SUPER_ADMIN_EMAIL. Jalankan sekali oleh pemilik project.
  */
-function createFirstSuperAdmin() {
+function createFirstSuperAdmin_() {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {

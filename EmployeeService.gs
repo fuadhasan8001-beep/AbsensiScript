@@ -1,1 +1,46 @@
-const EmployeeService={list(c){Access.requireRole(c,['SUPER_ADMIN','ADMIN_KECAMATAN','ADMIN_DESA']);return DB.rows('EMPLOYEES').filter(e=>{const o=DB.by('OFFICES','officeId',e.primaryOfficeId);return o&&Access.officeScope(c,o);});},save(c,p){Access.requireRole(c,['SUPER_ADMIN','ADMIN_KECAMATAN','ADMIN_DESA']);const d=p.employee||{};if(d.employeeId){const prior=DB.by('EMPLOYEES','employeeId',d.employeeId);if(!prior)throw new Error('Data pegawai tidak ditemukan.');Access.employee(c,d.employeeId);}if(!d.name||!d.email||!d.primaryOfficeId)throw new Error('Nama, email, dan kantor utama wajib diisi.');const office=DB.by('OFFICES','officeId',d.primaryOfficeId);if(!office||!Access.officeScope(c,office))throw new Error('Kantor di luar kewenangan.');const id=d.employeeId||Utils.id('emp'),obj={employeeId:id,identityNo:Utils.clean(d.identityNo),name:Utils.clean(d.name,150),email:Utils.email(d.email),phone:Utils.clean(d.phone,40),position:Utils.clean(d.position),unit:Utils.clean(d.unit),primaryOfficeId:d.primaryOfficeId,status:d.status||'ACTIVE',startDate:d.startDate||Utils.dateKey(Utils.now()),createdAt:d.createdAt||Utils.iso(Utils.now())};if(d.employeeId)DB.update('EMPLOYEES','employeeId',id,obj);else DB.append('EMPLOYEES',obj);const account=DB.rows('USERS').find(u=>Utils.email(u.email)===obj.email),userPatch={email:obj.email,status:obj.status,employeeId:id,districtId:office.districtId,villageId:office.villageId||''};if(account)DB.update('USERS','userId',account.userId,userPatch);else DB.append('USERS',{userId:Utils.id('usr'),email:obj.email,role:'PEGAWAI',status:obj.status,employeeId:id,districtId:office.districtId,villageId:office.villageId||'',createdAt:Utils.iso(Utils.now()),updatedAt:Utils.iso(Utils.now())});AuditService.log(c,'EMPLOYEE_SAVE','EMPLOYEES',id,{});return obj;}};
+const EmployeeService = {
+  list(c) {
+    Access.requireRole(c, ['SUPER_ADMIN', 'ADMIN_KECAMATAN', 'ADMIN_DESA']);
+    const offices = new Map(DB.rows('OFFICES').map(o => [String(o.officeId), o]));
+    return DB.rows('EMPLOYEES').filter(e => Access.officeScope(c, offices.get(String(e.primaryOfficeId)) || {}));
+  },
+  save(c, p) {
+    Access.requireRole(c, ['SUPER_ADMIN', 'ADMIN_KECAMATAN', 'ADMIN_DESA']);
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const d = p.employee || {}, prior = d.employeeId ? DB.by('EMPLOYEES', 'employeeId', d.employeeId) : null;
+      if (d.employeeId && !prior) throw new Error('Data pegawai tidak ditemukan.');
+      if (prior) Access.employee(c, d.employeeId);
+      const name = Utils.clean(d.name, 150), email = Utils.email(d.email), office = DB.by('OFFICES', 'officeId', d.primaryOfficeId);
+      if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !office) throw new Error('Nama, email valid, dan kantor utama wajib diisi.');
+      if (String(office.status).toUpperCase() !== 'ACTIVE' || !Access.officeScope(c, office)) throw new Error('Kantor tidak aktif atau di luar kewenangan.');
+      const id = prior ? prior.employeeId : Utils.id('emp');
+      const status = String(d.status || prior?.status || 'ACTIVE').toUpperCase();
+      if (!['ACTIVE', 'INACTIVE'].includes(status)) throw new Error('Status pegawai tidak valid.');
+      const employee = { employeeId: id, identityNo: Utils.clean(d.identityNo, 80), name, email, phone: Utils.clean(d.phone, 40), position: Utils.clean(d.position, 120), unit: Utils.clean(d.unit, 120), primaryOfficeId: office.officeId, status, startDate: d.startDate || prior?.startDate || Utils.dateKey(Utils.now()), createdAt: prior?.createdAt || Utils.iso(Utils.now()) };
+      const users = DB.rows('USERS');
+      const collision = users.find(u => Utils.email(u.email) === email && String(u.employeeId || '') !== String(id));
+      if (collision) throw new Error('Email sudah terhubung ke akun lain.');
+      const employeeCollision = DB.rows('EMPLOYEES').find(e => String(e.employeeId) !== String(id) && Utils.email(e.email) === email);
+      if (employeeCollision) throw new Error('Email sudah digunakan pegawai lain.');
+      const linked = users.filter(u => String(u.employeeId || '') === String(id));
+      const target = users.find(u => Utils.email(u.email) === email);
+      if (target && target.role !== 'PEGAWAI' && String(target.employeeId || '') !== String(id)) throw new Error('Email sudah digunakan akun administrator.');
+      if (prior) DB.update('EMPLOYEES', 'employeeId', id, employee);
+      else DB.append('EMPLOYEES', employee);
+      try {
+        linked.filter(u => String(u.userId) !== String(target?.userId || '')).forEach(u => DB.update('USERS', 'userId', u.userId, { status: 'INACTIVE', updatedAt: Utils.iso(Utils.now()) }));
+        if (target) DB.update('USERS', 'userId', target.userId, { email, role: 'PEGAWAI', status, employeeId: id, districtId: office.districtId, villageId: office.villageId || '', updatedAt: Utils.iso(Utils.now()) });
+        else DB.append('USERS', { userId: Utils.id('usr'), email, role: 'PEGAWAI', status, employeeId: id, districtId: office.districtId, villageId: office.villageId || '', createdAt: Utils.iso(Utils.now()), updatedAt: Utils.iso(Utils.now()) });
+      } catch (error) {
+        // Compensation best-effort; audit captures partial failure for manual reconciliation.
+        try { if (prior) DB.update('EMPLOYEES', 'employeeId', id, prior); } catch (_) {}
+        try { AuditService.log(c, 'EMPLOYEE_SAVE_PARTIAL_FAILURE', 'EMPLOYEES', id, { message: String(error.message || error) }); } catch (_) {}
+        throw new Error('Perubahan akun pegawai tidak selesai. Periksa audit log dan rekonsiliasi data sebelum mengulang.');
+      }
+      AuditService.log(c, prior && prior.email !== email ? 'EMPLOYEE_EMAIL_CHANGED' : 'EMPLOYEE_SAVE', 'EMPLOYEES', id, { previousEmail: prior?.email || '', email, status });
+      return employee;
+    } finally { lock.releaseLock(); }
+  }
+};
