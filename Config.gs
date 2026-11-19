@@ -1,4 +1,6 @@
 const APP = Object.freeze({ NAME: 'Sistem Informasi Absensi Instansi', TZ: 'Asia/Jakarta', VERSION: '0.1.0', MAX_GPS_ACCURACY_M: 100, CACHE_SECONDS: 300 });
+// Spreadsheet database yang ditentukan pemilik aplikasi.
+const DEFAULT_DATABASE_SPREADSHEET_ID = '1zTQKj2_t5F_-yworAyszhjd3p-OXl8Kqd0x2fcLKKLk';
 const TABLES = Object.freeze({
   USERS:['userId','email','role','status','employeeId','districtId','villageId','createdAt','updatedAt'],
   ROLES:['roleId','name','description'], KECAMATAN:['districtId','name','code','status'], DESA:['villageId','districtId','name','code','status'],
