@@ -26,7 +26,9 @@ const EmployeeService = {
       if (employeeCollision) throw new Error('Email sudah digunakan pegawai lain.');
       const linked = users.filter(u => String(u.employeeId || '') === String(id));
       const target = users.find(u => Utils.email(u.email) === email);
-      if (target && target.role !== 'PEGAWAI' && String(target.employeeId || '') !== String(id)) throw new Error('Email sudah digunakan akun administrator.');
+      if (target && target.role !== 'PEGAWAI') throw new Error('Email sudah digunakan akun administrator.');
+      const linkedBefore = linked.map(user => ({ ...user }));
+      AuditService.log(c, 'EMPLOYEE_SAVE_STARTED', 'EMPLOYEES', id, { previousEmail: prior?.email || '', email });
       if (prior) DB.update('EMPLOYEES', 'employeeId', id, employee);
       else DB.append('EMPLOYEES', employee);
       try {
@@ -34,11 +36,17 @@ const EmployeeService = {
         if (target) DB.update('USERS', 'userId', target.userId, { email, role: 'PEGAWAI', status, employeeId: id, districtId: office.districtId, villageId: office.villageId || '', updatedAt: Utils.iso(Utils.now()) });
         else DB.append('USERS', { userId: Utils.id('usr'), email, role: 'PEGAWAI', status, employeeId: id, districtId: office.districtId, villageId: office.villageId || '', createdAt: Utils.iso(Utils.now()), updatedAt: Utils.iso(Utils.now()) });
       } catch (error) {
-        // Compensation best-effort; audit captures partial failure for manual reconciliation.
+        // Compensate prior writes where possible; STARTED/PARTIAL_FAILURE audit records allow later reconciliation.
         try { if (prior) DB.update('EMPLOYEES', 'employeeId', id, prior); } catch (_) {}
+        try { linkedBefore.forEach(user => DB.update('USERS', 'userId', user.userId, user)); } catch (_) {}
+        try {
+          const created = DB.rows('USERS').find(user => Utils.email(user.email) === email && String(user.employeeId || '') === String(id) && !linkedBefore.some(old => String(old.userId) === String(user.userId)));
+          if (created) DB.update('USERS', 'userId', created.userId, { status: 'INACTIVE', updatedAt: Utils.iso(Utils.now()) });
+        } catch (_) {}
         try { AuditService.log(c, 'EMPLOYEE_SAVE_PARTIAL_FAILURE', 'EMPLOYEES', id, { message: String(error.message || error) }); } catch (_) {}
         throw new Error('Perubahan akun pegawai tidak selesai. Periksa audit log dan rekonsiliasi data sebelum mengulang.');
       }
+      AuditService.log(c, 'EMPLOYEE_SAVE_COMPLETED', 'EMPLOYEES', id, { email, status });
       AuditService.log(c, prior && prior.email !== email ? 'EMPLOYEE_EMAIL_CHANGED' : 'EMPLOYEE_SAVE', 'EMPLOYEES', id, { previousEmail: prior?.email || '', email, status });
       return employee;
     } finally { lock.releaseLock(); }

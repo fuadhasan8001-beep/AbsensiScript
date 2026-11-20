@@ -15,7 +15,7 @@ const TABLES = Object.freeze({
   AUDIT_LOGS:['auditId','actorId','action','entity','entityId','detailsJson','createdAt']
 });
 const UNIQUE_KEYS = Object.freeze({
-  USERS: [['userId'], ['email']], KECAMATAN: [['districtId'], ['code']], DESA: [['villageId'], ['code']],
+  USERS: [['userId'], ['email']], ROLES: [['roleId'], ['name']], KECAMATAN: [['districtId'], ['code']], DESA: [['villageId'], ['code']],
   OFFICES: [['officeId']], EMPLOYEES: [['employeeId'], ['email'], ['identityNo']],
   EMPLOYEE_ASSIGNMENTS: [['assignmentId']], WORK_SCHEDULES: [['scheduleId']], HOLIDAYS: [['holidayId']],
   DUTY_ASSIGNMENTS: [['dutyId']], DUTY_ASSIGNMENT_APPROVALS: [['approvalId']],

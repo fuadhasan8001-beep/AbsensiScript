@@ -5,6 +5,9 @@
  */
 
 function doGet() {
+  // Fail closed when no explicitly configured and structurally valid database exists.
+  prop_('DATABASE_SPREADSHEET_ID');
+  DB.validate_();
   const template = HtmlService.createTemplateFromFile('Index');
 
   // Konfigurasi Firebase web bukan secret server.

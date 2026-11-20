@@ -1,9 +1,15 @@
-# Arsitektur
+# Arsitektur dan batas sistem
 
-Browser menggunakan HTML Service, Firebase Google Sign-In, dan Geolocation API. Firebase ID token dikirim pada setiap pemanggilan `api()`. Backend Apps Script meminta Identity Toolkit `accounts:lookup` untuk memvalidasi token dan memastikan email terverifikasi, lalu mencocokkan email terhadap USERS aktif. API hanya mengembalikan pesan error terkendali.
+Browser menggunakan HTML Service, Firebase Google Sign-In, dan Geolocation API. Frontend memperoleh Firebase ID token yang valid lewat `getIdToken()` pada setiap request ke endpoint tunggal `api(action,payload)`. Backend memverifikasi token melalui Identity Toolkit, memastikan email terverifikasi dan akun `USERS` aktif, lalu mengirim aksi ke router yang memiliki allowlist.
 
-Backend modular berjalan dengan identitas pemilik deployment, sehingga identitas aplikasi berasal dari token Firebase dan akses spreadsheet berada di bawah pemilik. Jangan membuka spreadsheet kepada pengguna aplikasi. GPS dihitung ulang di server dengan Haversine, radius dan batas accuracy; GPS browser tetap dapat dipalsukan.
+`Code.gs` berisi endpoint web, router, dan fungsi setup privat berakhiran `_`. Fungsi helper server selain `doGet`, `include`, dan `api` diakhiri `_` atau menjadi method object; fungsi setup tidak tersedia sebagai pemanggilan `google.script.run`. Konteks role dan wilayah berasal dari record server `USERS`, bukan payload scope.
 
-Sheets dibagi menjadi empat spreadsheet terpisah, masing-masing ID pada Script Properties: `MASTER_DATA_SPREADSHEET_ID`, `OPERATIONAL_DATA_SPREADSHEET_ID`, `ATTENDANCE_DATA_SPREADSHEET_ID`, `AUDIT_LOGS_SPREADSHEET_ID`. Untuk kompatibilitas awal, versi kode sekarang memakai satu properti `DATABASE_SPREADSHEET_ID` dan memuat seluruh tabel di satu spreadsheet; pemisahan fisik adalah pekerjaan produksi yang belum diterapkan.
+Google Sheets menjadi satu database spreadsheet dengan satu tab per tabel. `TABLES` merupakan kontrak header; koneksi mewajibkan Script Property `DATABASE_SPREADSHEET_ID`, dan `doGet` memvalidasi semua header yang telah ada. Inisialisasi hanya menambahkan tab/header yang belum ada setelah validasi tab lama. Setiap request API menggunakan cache baris per eksekusi yang diinvalidasi oleh operasi write. Lookup peta menghindari pembacaan sheet berulang pada sebagian list/report.
 
-Transaksi check-in/out menggunakan ScriptLock. Saat skala meningkat, Sheets dan Apps Script punya kuota serta batas konkurensi; ukur beban aktual dan pertimbangkan database transaksional sebelum perluasan.
+Google Sheets tidak menyediakan transaksi relasional. Beberapa read-modify-write kritis memakai `ScriptLock`, validasi aplikasi menegakkan kunci unik untuk insert/update, dan perubahan identitas pegawai menulis penanda audit mulai/selesai/gagal serta mencoba kompensasi. Kunci tidak menjamin transaksi; timeout/kuota dapat meninggalkan kondisi parsial yang harus direkonsiliasi dari audit dan relasi data. Belum ada idempotency key persisten atau mekanisme transaksional umum.
+
+Semua tanggal bisnis memakai kalender `Asia/Jakarta`; timestamp disimpan dengan offset eksplisit `+07:00`. String `datetime-local` ditafsirkan sebagai WIB di server. Jadwal lintas tengah malam belum didukung.
+
+GPS divalidasi ulang di server dengan Haversine, radius, status kantor, rentang koordinat dan ambang akurasi. Nilai lokasi tetap dikirim browser sehingga spoofing mungkin terjadi. Hari libur global (officeId kosong) berlaku umum; hari libur dengan `officeId` berlaku ke kantor tersebut. Penempatan reguler menggunakan `EMPLOYEES.primaryOfficeId`; `EMPLOYEE_ASSIGNMENTS` belum menentukan penempatan efektif sampai aturan bisnis (prioritas dan rentang) disepakati.
+
+Skala Sheets/Apps Script memiliki batas kuota dan waktu eksekusi. Optimasi statis belum menjadi bukti kapasitas untuk 100–500 pegawai; pengukuran beban dan konkurensi wajib dilakukan di staging.

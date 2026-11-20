@@ -11,14 +11,16 @@ const DB = {
     if (!Object.prototype.hasOwnProperty.call(TABLES, name)) throw new Error('Tabel database tidak dikenal.');
     const sheet = this.ss().getSheetByName(name);
     if (!sheet) throw new Error('Database belum diinisialisasi: ' + name);
-    this.assertHeader_(sheet, name);
+    if (!this.assertHeader_(sheet, name)) throw new Error('Database belum diinisialisasi: ' + name);
     return sheet;
   },
   assertHeader_(sheet, name) {
     const expected = TABLES[name];
-    if (sheet.getLastRow() < 1 || sheet.getLastColumn() !== expected.length) throw new Error('Header database tidak sesuai untuk tab ' + name + '. Tidak ada perubahan yang dilakukan.');
+    if (sheet.getLastRow() === 0) return false;
+    if (sheet.getLastColumn() !== expected.length) throw new Error('Header database tidak sesuai untuk tab ' + name + '. Tidak ada perubahan yang dilakukan.');
     const actual = sheet.getRange(1, 1, 1, expected.length).getDisplayValues()[0];
     if (expected.some((header, i) => actual[i] !== header)) throw new Error('Header database tidak sesuai untuk tab ' + name + '. Tidak ada perubahan yang dilakukan.');
+    return true;
   },
   validate_() {
     const ss = this.ss();
@@ -31,10 +33,8 @@ const DB = {
   init() {
     const ss = this.validate_();
     Object.keys(TABLES).forEach(name => {
-      if (!ss.getSheetByName(name)) {
-        const sheet = ss.insertSheet(name);
-        sheet.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]);
-      }
+      const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+      if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]);
     });
     this.beginRequest_();
     return 'Database siap';
@@ -51,8 +51,10 @@ const DB = {
   by(name, key, value) { return this.rows(name).find(row => String(row[key]) === String(value)) || null; },
   assertUnique_(name, obj, exceptId) {
     const keys = UNIQUE_KEYS[name] || [];
-    const conflict = this.rows(name).find(row => {
-      if (exceptId && String(row[keys[0][0]]) === String(exceptId)) return false;
+    const rows = this.rows(name);
+    const currentIndex = exceptId === undefined || exceptId === null ? -1 : rows.findIndex(row => String(row[keys[0][0]]) === String(exceptId));
+    const conflict = rows.find((row, index) => {
+      if (index === currentIndex) return false;
       return keys.some(fields => fields.every(field => {
         const value = obj[field];
         if (value === '' || value === null || value === undefined) return false;
