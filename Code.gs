@@ -29,11 +29,42 @@ function include(name) {
 function api(action, payload) {
   try {
     const request = payload || {};
+    if (action === 'registrationStatus' || action === 'registrationSubmit') {
+      const firebaseUser = Auth.verify_(request.token);
+      const data = action === 'registrationStatus'
+        ? RegistrationService.status(firebaseUser)
+        : RegistrationService.submit(firebaseUser, request);
+      return { ok: true, data: apiSafeValue_(data) };
+    }
     const context = Auth.require_(request.token);
     const data = Router.dispatch_(action, request, context);
-    return { ok: true, data: data };
+    return { ok: true, data: apiSafeValue_(data) };
   } catch (error) {
+    console.error('API action failed (' + action + '): ' + String(error && (error.stack || error.message) || error));
     return { ok: false, error: Errors.public_(error) };
+  }
+}
+
+/** Date objects from Sheets cannot cross google.script.run; normalize response values first. */
+function apiSafeValue_(value) {
+  if (value === undefined) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? '' : Utils.iso(value);
+  if (Array.isArray(value)) return value.map(apiSafeValue_);
+  if (value && typeof value === 'object') {
+    const result = {};
+    Object.keys(value).forEach(function (key) { result[key] = apiSafeValue_(value[key]); });
+    return result;
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) return null;
+  return value;
+}
+
+/** Batasi fungsi pemeliharaan yang diekspos Google.script.run ke pemilik saat menjalankannya dari editor. */
+function assertProjectOwner_() {
+  const activeEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const effectiveEmail = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!activeEmail || !effectiveEmail || activeEmail !== effectiveEmail) {
+    throw new Error('Fungsi pemeliharaan hanya dapat dijalankan oleh pemilik project dari editor Apps Script.');
   }
 }
 
@@ -42,6 +73,7 @@ function api(action, payload) {
  * Fungsi ini tidak mengisi data contoh kecamatan, kantor, atau pegawai.
  */
 function initializeDatabase() {
+  assertProjectOwner_();
   const spreadsheet = DB.ss();
   const message = DB.init();
   const tabs = spreadsheet.getSheets().map(function (sheet) {
@@ -66,6 +98,7 @@ function initializeDatabase() {
 
 /** Periksa spreadsheet dan tab database tanpa membuat perubahan. */
 function inspectDatabase() {
+  assertProjectOwner_();
   const spreadsheet = DB.ss();
   const tabs = spreadsheet.getSheets().map(function (sheet) {
     return {
@@ -87,10 +120,58 @@ function inspectDatabase() {
 }
 
 /**
+ * Reset akun pegawai/admin dan profil pegawai.
+ * Mempertahankan Super Admin serta riwayat absensi, koreksi, penugasan, dan audit.
+ * Jalankan manual oleh pemilik dari editor Apps Script; fungsi ini tidak tersedia di API web.
+ */
+function resetEmployeeAdminData() {
+  assertProjectOwner_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const spreadsheet = DB.ss();
+    const userSheet = spreadsheet.getSheetByName('USERS');
+    if (!userSheet) throw new Error('Tab USERS tidak ditemukan. Jalankan initializeDatabase terlebih dahulu.');
+    const headers = TABLES.USERS;
+    const roleColumn = headers.indexOf('role');
+    const userRows = userSheet.getLastRow() > 1
+      ? userSheet.getRange(2, 1, userSheet.getLastRow() - 1, headers.length).getValues()
+      : [];
+    let removedAccounts = 0;
+    for (let i = userRows.length - 1; i >= 0; i--) {
+      const row = userRows[i];
+      if (!row.some(value => value !== '' && value !== null)) continue;
+      if (!['PEGAWAI', 'ADMIN_DESA', 'ADMIN_KECAMATAN'].includes(String(row[roleColumn]).toUpperCase())) continue;
+      userSheet.deleteRow(i + 2);
+      removedAccounts++;
+    }
+
+    const cleared = {};
+    ['EMPLOYEES', 'REGISTRATION_REQUESTS'].forEach(name => {
+      const sheet = spreadsheet.getSheetByName(name);
+      if (!sheet || sheet.getLastRow() <= 1) {
+        cleared[name] = 0;
+        return;
+      }
+      cleared[name] = sheet.getLastRow() - 1;
+      sheet.getRange(2, 1, cleared[name], Math.max(sheet.getLastColumn(), TABLES[name].length)).clearContent();
+    });
+
+    const result = { removedAccounts, cleared };
+    AuditService.log({ id: 'SYSTEM_RESET' }, 'EMPLOYEE_ADMIN_DATA_RESET', 'DATABASE', 'EMPLOYEES_AND_USERS', result);
+    Logger.log('Reset data pegawai/admin: ' + JSON.stringify(result));
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * Membuat akun Super Admin pertama dari Script Property
  * FIRST_SUPER_ADMIN_EMAIL. Jalankan sekali oleh pemilik project.
  */
 function createFirstSuperAdmin() {
+  assertProjectOwner_();
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -194,6 +275,12 @@ const Router = {
       officeSave: function () {
         return OfficeService.save(context, payload);
       },
+      attendanceAreaList: function () {
+        return AttendanceAreaService.list(context);
+      },
+      attendanceAreaSave: function () {
+        return AttendanceAreaService.save(context, payload);
+      },
       orgList: function () {
         return OrganizationService.list(context, payload);
       },
@@ -231,6 +318,15 @@ const Router = {
       },
       userSave: function () {
         return UserService.userSave(context, payload);
+      },
+      registrationList: function () {
+        return RegistrationService.list(context);
+      },
+      registrationApprove: function () {
+        return RegistrationService.approve(context, payload);
+      },
+      registrationReject: function () {
+        return RegistrationService.reject(context, payload);
       }
     };
 

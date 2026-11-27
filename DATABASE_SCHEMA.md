@@ -5,10 +5,12 @@
 | Tab | Primary ID | Relasi/kolom utama |
 |---|---|---|
 | USERS | userId | email, role, status, employeeId, districtId, villageId |
+| REGISTRATION_REQUESTS | requestId | email, name, status, requestedAt, reviewedAt, reviewedBy, decisionNote |
 | ROLES | roleId | name, description |
 | KECAMATAN | districtId | name, code, status |
 | DESA | villageId | districtId, name, code, status |
 | OFFICES | officeId | districtId, villageId, koordinat, radiusM, status |
+| ATTENDANCE_AREAS | areaId | titik koordinat absensi per kecamatan/desa, status konfigurasi, audit perubahan |
 | EMPLOYEES | employeeId | email, primaryOfficeId, status |
 | EMPLOYEE_ASSIGNMENTS | assignmentId | employeeId, officeId, rentang tanggal |
 | WORK_SCHEDULES | scheduleId | officeId, hari dan rentang waktu |

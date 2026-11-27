@@ -3,6 +3,8 @@ const APP = Object.freeze({ NAME: 'Sistem Informasi Absensi Instansi', TZ: 'Asia
 const DEFAULT_DATABASE_SPREADSHEET_ID = '1zTQKj2_t5F_-yworAyszhjd3p-OXl8Kqd0x2fcLKKLk';
 const TABLES = Object.freeze({
   USERS:['userId','email','role','status','employeeId','districtId','villageId','createdAt','updatedAt'],
+  ATTENDANCE_AREAS:['areaId','type','districtId','villageId','latitude','longitude','enabled','updatedAt','updatedBy'],
+  REGISTRATION_REQUESTS:['requestId','email','name','status','requestedAt','reviewedAt','reviewedBy','decisionNote'],
   ROLES:['roleId','name','description'], KECAMATAN:['districtId','name','code','status'], DESA:['villageId','districtId','name','code','status'],
   OFFICES:['officeId','name','type','districtId','villageId','address','latitude','longitude','radiusM','status'],
   EMPLOYEES:['employeeId','identityNo','name','email','phone','position','unit','primaryOfficeId','status','startDate','createdAt'],
